@@ -1,0 +1,183 @@
+#' Generate clusters - modified to return FlowSOM object
+#' 
+#' Generate high-resolution clusters for \code{diffcyt} analysis
+#' 
+#' Performs clustering to group cells into clusters representing cell populations or
+#' subsets, which can then be further analyzed by testing for differential abundance of
+#' cell populations or differential states within cell populations. By default, we use
+#' high-resolution clustering or over-clustering (i.e. we generate a large number of small
+#' clusters), which helps ensure that rare populations are adequately separated from
+#' larger ones.
+#' 
+#' Data is assumed to be in the form of a \code{\link{SummarizedExperiment}} object
+#' generated with \code{\link{prepareData}} and transformed with
+#' \code{\link{transformData}}.
+#' 
+#' The input data object \code{d_se} is assumed to contain a vector \code{marker_class} in
+#' the column meta-data. This vector indicates the marker class for each column
+#' (\code{"type"}, \code{"state"}, or \code{"none"}). By default, clustering is performed
+#' using the 'cell type' markers only. For example, in immunological data, this may be the
+#' lineage markers. The choice of cell type markers is an important design choice for the
+#' user, and will depend on the underlying experimental design and research questions. It
+#' may be made based on prior biological knowledge or using data-driven methods. For an
+#' example of a data-driven method of marker ranking and selection, see Nowicka et al.
+#' (2017), \emph{F1000Research}.
+#' 
+#' By default, we use the \code{\link{FlowSOM}} clustering algorithm (Van Gassen et al.
+#' 2015, \emph{Cytometry Part A}, available from Bioconductor) to generate the clusters.
+#' We previously showed that \code{FlowSOM} gives very good clustering performance for
+#' high-dimensional cytometry data, for both major and rare cell populations, and is
+#' extremely fast (Weber and Robinson, 2016, \emph{Cytometry Part A}).
+#' 
+#' The clustering is run at high resolution to give a large number of small clusters (i.e.
+#' over-clustering). This is done by running only the initial 'self-organizing map'
+#' clustering step in the \code{FlowSOM} algorithm, i.e. without the final
+#' 'meta-clustering' step. This ensures that small or rare populations are adequately
+#' separated from larger populations, which is crucial for detecting differential signals
+#' for extremely rare populations.
+#' 
+#' The minimum spanning tree (MST) object from \code{\link{BuildMST}} is stored in the
+#' experiment \code{metadata} slot in the \code{\link{SummarizedExperiment}} object
+#' \code{d_se}, and can be accessed with \code{metadata(d_se)$MST}.
+#' 
+#' 
+#' @param d_se Transformed input data, from \code{\link{prepareData}} and
+#'   \code{\link{transformData}}.
+#' 
+#' @param cols_clustering Columns to use for clustering. Default = \code{NULL}, in which
+#'   case markers identified as 'cell type' markers (with entries \code{"type"}) in the
+#'   vector \code{marker_class} in the column meta-data of \code{d_se} will be used.
+#' 
+#' @param xdim Horizontal length of grid for self-organizing map for FlowSOM clustering
+#'   (number of clusters = \code{xdim} * \code{ydim}). Default = 10 (i.e. 100 clusters).
+#' 
+#' @param ydim Vertical length of grid for self-organizing map for FlowSOM clustering
+#'   (number of clusters = \code{xdim} * \code{ydim}). Default = 10 (i.e. 100 clusters).
+#' 
+#' @param meta_clustering Whether to include FlowSOM 'meta-clustering' step. Default =
+#'   \code{FALSE}.
+#' 
+#' @param meta_k Number of meta-clusters for FlowSOM, if \code{meta-clustering = TRUE}.
+#'   Default = 40.
+#' 
+#' @param seed_clustering Random seed for clustering. Set to an integer value to generate
+#'   reproducible results. Default = \code{NULL}.
+#' 
+#' @param ... Other parameters to pass to the FlowSOM clustering algorithm (through the
+#'   function \code{\link{BuildSOM}}).
+#' 
+#' 
+#' @return \code{d_se}: Returns the \code{\link{SummarizedExperiment}} input object, with
+#'   cluster labels for each cell stored in an additional column of row meta-data. Row
+#'   meta-data can be accessed with \code{\link{rowData}}. The minimum spanning tree (MST)
+#'   object is also stored in the \code{metadata} slot, and can be accessed with
+#'   \code{metadata(d_se)$MST}.
+#' 
+#' 
+#' @importFrom FlowSOM ReadInput BuildSOM BuildMST metaClustering_consensus
+#' @importFrom flowCore flowFrame
+#' @importFrom SummarizedExperiment assays rowData colData 'rowData<-'
+#' @importFrom S4Vectors metadata 'metadata<-'
+#' @importFrom grDevices pdf dev.off
+#' 
+#' @export
+#' 
+#' @examples
+#' # For a complete workflow example demonstrating each step in the 'diffcyt' pipeline, 
+#' # see the package vignette.
+#' 
+#' # Function to create random data (one sample)
+#' d_random <- function(n = 20000, mean = 0, sd = 1, ncol = 20, cofactor = 5) {
+#'   d <- sinh(matrix(rnorm(n, mean, sd), ncol = ncol)) * cofactor
+#'   colnames(d) <- paste0("marker", sprintf("%02d", 1:ncol))
+#'   d
+#' }
+#' 
+#' # Create random data (without differential signal)
+#' set.seed(123)
+#' d_input <- list(
+#'   sample1 = d_random(), 
+#'   sample2 = d_random(), 
+#'   sample3 = d_random(), 
+#'   sample4 = d_random()
+#' )
+#' 
+#' experiment_info <- data.frame(
+#'   sample_id = factor(paste0("sample", 1:4)), 
+#'   group_id = factor(c("group1", "group1", "group2", "group2")), 
+#'   stringsAsFactors = FALSE
+#' )
+#' 
+#' marker_info <- data.frame(
+#'   channel_name = paste0("channel", sprintf("%03d", 1:20)), 
+#'   marker_name = paste0("marker", sprintf("%02d", 1:20)), 
+#'   marker_class = factor(c(rep("type", 10), rep("state", 10)), 
+#'                         levels = c("type", "state", "none")), 
+#'   stringsAsFactors = FALSE
+#' )
+#' 
+#' # Prepare data
+#' d_se <- prepareData(d_input, experiment_info, marker_info)
+#' 
+#' # Transform data
+#' d_se <- transformData(d_se)
+#' 
+#' # Generate clusters
+#' d_se <- generateClusters(d_se)
+#' 
+generateClusters <- function(d_se, cols_clustering = NULL, 
+                             xdim = 10, ydim = 10, 
+                             meta_clustering = FALSE, meta_k = 40, 
+                             seed_clustering = NULL, ...) {
+  require(FlowSOM)
+  
+  if (is.null(cols_clustering)) cols_clustering <- colData(d_se)$marker_class == "type"
+  
+  # note: FlowSOM requires input data as 'flowFrame' or 'flowSet'
+  d_ff <- flowFrame(assays(d_se)[["exprs"]])
+  
+  runtime <- system.time({
+    # FlowSOM: pre meta-clustering
+    if (!is.null(seed_clustering)) set.seed(seed_clustering); 
+    fsom <- ReadInput(d_ff, transform = FALSE, scale = FALSE); 
+    fsom <- suppressMessages(BuildSOM(fsom, colsToUse = cols_clustering, xdim = xdim, ydim = ydim, ...)); 
+    fsom <- suppressMessages(BuildMST(fsom))
+    
+    if (meta_clustering) {
+      # FlowSOM: meta-clustering
+      # (note: seed for meta-clustering must be provided via argument)
+      meta <- metaClustering_consensus(fsom$map$codes, k = meta_k, seed = seed_clustering)
+    }
+  })
+  
+  message("FlowSOM clustering completed in ", round(runtime[["elapsed"]], 1), " seconds")
+  
+  # extract cluster labels
+  clus_pre <- fsom$map$mapping[, 1]
+  if (meta_clustering) {
+    clus <- meta[clus_pre]
+  } else {
+    clus <- clus_pre
+  }
+  
+  # convert to factor (with levels in ascending order)
+  if (meta_clustering) {
+    n_clus <- meta_k
+  } else {
+    n_clus <- xdim * ydim
+  }
+  
+  clus <- factor(clus, levels = seq_len(n_clus))  # includes levels for any missing/empty clusters
+  
+  # store cluster labels in row meta-data
+  rowData(d_se)$cluster_id <- clus
+  
+  # store MST object in experiment 'metadata' slot
+  metadata(d_se)$MST <- fsom$MST
+  
+  # d_se
+  
+  return_list <- list("d_se"=d_se, "fsom"=fsom)
+  return(return_list)
+}
+
