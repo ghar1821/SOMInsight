@@ -6,6 +6,7 @@ library(scales)
 
 classifiers <- c("DT", "KNN", "LR", "NB", "RF", "SVM")
 folds <- c(1:26)
+main_dir <- "~/Documents/phd/tracksom_differential/cmv_complete_tp_only/"
 
 # plot all functional markers ----
 setwd(main_dir)
@@ -21,7 +22,7 @@ dat_test_list <- lapply(folds, function(fold) {
   return(dat_classifiers)
 })
 dat_test_all_func <- rbindlist(dat_test_list)
-dat_test_all_func$marker <- "SOMProphet's temporally dynamic immune features"
+dat_test_all_func$marker <- "Temporally dynamic immune features"
 
 setwd(main_dir)
 setwd("diffcyt_10x10_20_marker_from_LS/classification_res_allTPTogether/")
@@ -36,7 +37,7 @@ dat_test_list <- lapply(folds, function(fold) {
   return(dat_classifiers)
 })
 dat_test_diffcyt <- rbindlist(dat_test_list)
-dat_test_diffcyt$marker <- "Diffcyt's single static immune features"
+dat_test_diffcyt$marker <- "Single static immune features"
 
 dat_test <- rbind(dat_test_all_func, dat_test_diffcyt)
 dat_test[, correct := ifelse(Predicted == Reference, "YES", "NO")]
@@ -52,8 +53,8 @@ dat_test_stat$marker <-
   factor(
     dat_test_stat$marker,
     levels = c(
-      "SOMProphet's temporally dynamic immune features",
-      "Diffcyt's single static immune features"
+      "Temporally dynamic immune features",
+      "Single static immune features"
     )
   )
 
@@ -68,8 +69,8 @@ ggplot(data=dat_acc, aes(x=marker, y=proportion, fill=marker)) +
   geom_bar(stat="identity") +
   geom_text(aes(label=round_prop), vjust=1.6, color="white", size=5) +
   facet_wrap(~ Classifier) +
-  scale_x_discrete(labels = addline_format(c("SOMProphet's temporally dynamic immune features",
-                                             "Diffcyt's single static immune features"))) +
+  scale_x_discrete(labels = addline_format(c("Temporally dynamic immune features",
+                                             "Single static immune features"))) +
   scale_fill_brewer(palette="Dark2") +
   theme_bw() +
   labs(y = "Classification accuracy score", x = 'Features') + 

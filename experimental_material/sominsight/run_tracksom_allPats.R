@@ -202,7 +202,7 @@ ks_prop <- rbindlist(ks_prop)
 
 fwrite(ks_prop, "ks_test.csv")
 
-
+# plots ----
 library(ggplot2)
 mapping <- fread("meta_mapping.csv")
 dat_linreg_prop <- merge(dat_linreg_prop, mapping, by.x = 'variable',
@@ -210,6 +210,8 @@ dat_linreg_prop <- merge(dat_linreg_prop, mapping, by.x = 'variable',
 
 dat_linreg_prop$group_reactive <- factor(dat_linreg_prop$group_reactive, 
                                          levels = c("Reactivated", "Non-Reactivated"))
+
+# cumulative distributions ----
 ggplot(dat_linreg_prop,
        aes_string(x = "value", colour = 'group_reactive')) +
   stat_ecdf(size = 1) +
@@ -265,6 +267,136 @@ ggsave("cum_temp_state.pdf",
        height = 5,
        limitsize = FALSE)
 
+# autograph ----
+dat_dir <- "~/Documents/phd/tracksom_differential/cmv_complete_tp_only/tsom_all_pats/"
+setwd(dat_dir)
+timepoints <- c("T1", "T2", "T3", "T4")
+
+dat <- lapply(timepoints, function(t) {
+  return(fread(paste0("Clustered__Timepoint_", t, ".csv")))
+})
+dat <- rbindlist(dat)
+
+# read sample details
+# Extract timepoint, group for each sample
+samp_dets <- unique(dat[, c("Sample", "Group", "Timepoint", "PatientName")])
+samp_dets[,group_reactive := ifelse(Group %in% c("SN", "NR"), 'Non-Reactivated', 'Reactivated')]
+samp_dets$Group <- NULL
+
+source("~/Documents/GitHub/tracksom-differential/v2/common_functions.R")
+func_markers <- c("HCMV_IE", "HCMV_pp65", "CD25", "CD69", "HLA_DR", 'CD38', "CD279_PD1", "Tim3",
+                  "CD278", "Granzyme_B", "CD314_NKG2D", "CD86", "CD274")
+train_dat_prop <- extract_cnt_perMetaSample(dat, use_proportion = TRUE)
+
+train_dat_prop_dt <- data.table(train_dat_prop)
+train_dat_prop_dt$meta_cluster <- rownames(train_dat_prop)
+
+setwd("lmms")
+mapping <- fread("meta_mapping.csv")
+meta_cnt <- c("T", "H", "D")
+train_dat_prop_dt <- train_dat_prop_dt[train_dat_prop_dt$meta_cluster %in% meta_cnt]
+train_dat_prop_dt <-
+  melt(
+    train_dat_prop_dt,
+    id.vars = "meta_cluster",
+    variable.name = 'Sample',
+    value.name = 'proportion'
+  )
+train_dat_prop_dt <- merge(train_dat_prop_dt, samp_dets)
+
+setwd("..")
+library(RColorBrewer)
+# NK cells
+train_dat_prop_dt_pop <- train_dat_prop_dt[train_dat_prop_dt$meta_cluster == 'T']
+p <- make.autograph(dat = train_dat_prop_dt_pop,
+               x.axis = "Timepoint",
+               y.axis = 'proportion',
+               colours = c('blue', 'red'),
+               colour.by = 'group_reactive',
+               violin = FALSE,
+               title = "Proportion of NK cells",
+               y.axis.label = 'Proportion of cells',
+               x.axis.label = 'Time-point',
+               filename = "nk_cells.pdf",
+               dot.size = 4
+) + facet_grid(. ~ group_reactive) +
+  theme(strip.text = element_text(colour="black", size=12, face = 'bold'),
+        legend.position = 'none')
+ggsave(plot = p, filename = "nk_cells.pdf",
+       width = 7, height = 5)
+
+# CD8 T cells
+train_dat_prop_dt_pop <- train_dat_prop_dt[train_dat_prop_dt$meta_cluster == 'H']
+p <- make.autograph(dat = train_dat_prop_dt_pop,
+                    x.axis = "Timepoint",
+                    y.axis = 'proportion',
+                    colours = c('blue', 'red'),
+                    colour.by = 'group_reactive',
+                    violin = FALSE,
+                    title = "Proportion of CD8+ T cells",
+                    y.axis.label = 'Proportion of cells',
+                    x.axis.label = 'Time-point',
+                    filename = "cd8_tcells.pdf",
+                    dot.size = 4
+) + facet_grid(. ~ group_reactive) +
+  theme(strip.text = element_text(colour="black", size=12, face = 'bold'),
+        legend.position = 'none')
+ggsave(plot = p, filename = "cd8_tcells.pdf",
+       width = 7, height = 5)
+
+# Monocytes
+train_dat_prop_dt_pop <- train_dat_prop_dt[train_dat_prop_dt$meta_cluster == 'D']
+p <- make.autograph(dat = train_dat_prop_dt_pop,
+                    x.axis = "Timepoint",
+                    y.axis = 'proportion',
+                    colours = c('blue', 'red'),
+                    colour.by = 'group_reactive',
+                    violin = FALSE,
+                    title = "Proportion of Classical Monocytes",
+                    y.axis.label = 'Proportion of cells',
+                    x.axis.label = 'Time-point',
+                    filename = "monocytes.pdf",
+                    dot.size = 4
+) + facet_grid(. ~ group_reactive) +
+  theme(strip.text = element_text(colour="black", size=12, face = 'bold'),
+        legend.position = 'none')
+ggsave(plot = p, filename = "monocytes.pdf",
+       width = 7, height = 5)
+
+# Markers 
+train_dat_marker <- extract_markerStats_perMetaSample(dat = dat, markers = func_markers, stat_method = 'median')
+
+train_dat_marker_dt <- data.table(train_dat_marker)
+train_dat_marker_dt$meta_cluster <- rownames(train_dat_marker)
+
+mapping <- fread("meta_mapping.csv")
+meta_marker <- c("Tim3_T")
+train_dat_marker_dt <- train_dat_marker_dt[train_dat_marker_dt$meta_cluster %in% meta_marker]
+train_dat_marker_dt <-
+  melt(
+    train_dat_marker_dt,
+    id.vars = "meta_cluster",
+    variable.name = 'Sample',
+    value.name = 'median_marker'
+  )
+train_dat_marker_dt <- merge(train_dat_marker_dt, samp_dets)
+p <- make.autograph(dat = train_dat_marker_dt,
+                    x.axis = "Timepoint",
+                    y.axis = 'median_marker',
+                    colours = c('blue', 'red'),
+                    colour.by = 'group_reactive',
+                    violin = FALSE,
+                    title = "Median expression of TIM-3 marker in NK cells",
+                    y.axis.label = 'Median expression of TIM-3 marker',
+                    x.axis.label = 'Time-point',
+                    filename = "tim3_nk.pdf",
+                    dot.size = 4
+) + facet_grid(. ~ group_reactive) +
+  theme(strip.text = element_text(colour="black", size=12, face = 'bold'),
+        legend.position = 'none')
+ggsave(plot = p, filename = "tim3_nk.pdf",
+       width = 7, height = 5)
+  
 
 # investigate meta-cluster L ----
 # Could it be capturing multiple cell type? 

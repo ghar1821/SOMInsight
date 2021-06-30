@@ -14,10 +14,10 @@ ggplot(dat, aes(x=Timepoint, y=cell_count_numeric, fill=group_reactive)) +
          fill = 'Class') +
     theme_bw() +
     ggtitle("Distribution of sample size") +
-    theme(text = element_text(size=10),
+    theme(text = element_text(size=18),
           legend.position = 'bottom')
 
-ggsave("sample_size_distribution.png",
+ggsave("sample_size_distribution.pdf",
        # width = 50,
        # height = 50,
        # units = 'mm',
